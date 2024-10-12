@@ -21,7 +21,7 @@ namespace ZomboidSavesBackuper
             var logEntryBuilder = new SimpleLogEntryBuilder();
 
             _logger = new MultiLogger([
-                new ConsoleLogger(logEntryBuilder), 
+                new ConsoleLogger(logEntryBuilder),
                 new FileLogger("log.txt", logEntryBuilder)]);
 
             _savesBackupingDataStorage = new SavesBackupingDataStorage();
@@ -52,8 +52,6 @@ namespace ZomboidSavesBackuper
 
             while (true)
             {
-                ValidateBackups(savesBackupingData);
-
                 var isBackuped = BackupSaves(savesBackupingData);
 
                 if (isBackuped)
@@ -67,93 +65,56 @@ namespace ZomboidSavesBackuper
                         _logger.Log("All saves backups are up to date. Waiting for saves changes...");
                     }
                 }
-               
+
                 isFirstLoop = false;
-               
+
                 Thread.Sleep(5000);
             }
         }
 
-        private void ValidateBackups(SavesBackupingData backupsData)
-        {
-            var invalidBackupedSaves = new List<BackupedSave>();
-
-            foreach (var backupedSave in backupsData.BackupedSaves)
-            {
-                var originalSavePath = backupsData.GetOriginalSavePath(backupedSave);
-                if (!Directory.Exists(originalSavePath))
-                {
-                    invalidBackupedSaves.Add(backupedSave);
-                }
-            }
-
-            foreach (var backupedSave in invalidBackupedSaves)
-            {
-                _logger.Log($"Missed save {backupedSave.OriginalSaveRelativeFolder}. Backup data will be removed", LogType.Warning);
-                backupsData.RevoveBackupedSave(backupedSave);
-            }
-
-            _savesBackupingDataStorage.Save(backupsData);
-        }
-
         private bool BackupSaves(SavesBackupingData savesBackupingData)
         {
-            var originalSavesFolders = FindOriginalSavesFolders(savesBackupingData);
+            var originalChangedSaves = FindOriginalChangedSaves(savesBackupingData);
 
-            var currentProcessingSaveNum = 0;
-            var totalSavesToProcessCount = originalSavesFolders.Sum(f => f.Value.Count);
+            bool anyBackuped = false;
 
-            var backupedSaves = new List<string>();
-
-            foreach (var originalSavesFolder in originalSavesFolders)
+            for (var i = 0; i < originalChangedSaves.Count; i++)
             {
-                var locationFolder = originalSavesFolder.Key;
-                foreach (var originalSaveFolder in originalSavesFolder.Value)
+                var originalSave = originalChangedSaves[i];
+
+                var backupedSave = savesBackupingData.GetBackupedSave(originalSave.LocationFolder, originalSave.SaveFolder, true);
+                var savesLocationPath = savesBackupingData.SavesPath + backupedSave.LocationFolder + "\\";
+                var originalSavePath = savesLocationPath + backupedSave.OriginalSaveFolder + "\\";
+
+                var originalSaveModifiedUTC = Directory.GetLastWriteTimeUtc(originalSavePath);
+
+                var backupResult = BackupResult.None;
+
+                while (backupResult != BackupResult.Success && backupResult != BackupResult.Skipped)
                 {
-                    currentProcessingSaveNum++;
+                    backupResult = BackupSave(
+                        backupedSave,
+                        savesBackupingData.SaveMaxBackupCount,
+                        savesLocationPath,
+                        originalSave.SaveFolder,
+                        originalSavePath,
+                        (progress, file) => _logger.Log($"Backuping saves {i + 1}/{originalChangedSaves.Count} {backupedSave.OriginalSaveRelativeFolder}: {(int)(progress * 100)}%, {file}"),
+                        () => _savesBackupingDataStorage.Save(savesBackupingData));
 
-                    var backupedSave = savesBackupingData.GetOrAddBackupedSave(locationFolder, originalSaveFolder);
-                    var savesLocationPath = savesBackupingData.SavesPath + backupedSave.LocationFolder + "\\";
-                    var originalSavePath = savesLocationPath + backupedSave.OriginalSaveFolder + "\\";
-
-                    var originalSaveModifiedUTC = Directory.GetLastWriteTimeUtc(originalSavePath);
-
-                    if (!backupedSave.IsNeedMakeBackup(originalSaveModifiedUTC))
+                    if (backupResult == BackupResult.Fail)
                     {
-                        continue;
+                        _logger.Log("Retrying in 5 seconds...");
+                        Thread.Sleep(5000);
                     }
+                }
 
-                    var backupResult = BackupResult.None;
-
-                    while (backupResult != BackupResult.Success && backupResult != BackupResult.Skipped)
-                    {
-                        backupResult = BackupSave(
-                            backupedSave,
-                            savesBackupingData.SaveMaxBackupCount,
-                            savesLocationPath,
-                            originalSaveFolder,
-                            originalSavePath,
-                            (progress, file) => _logger.Log($"Backuping saves {currentProcessingSaveNum}/{totalSavesToProcessCount} {backupedSave.OriginalSaveRelativeFolder}: {(int)(progress * 100)}%, {file}"),
-                            () => _savesBackupingDataStorage.Save(savesBackupingData));
-
-                        _savesBackupingDataStorage.Save(savesBackupingData);
-
-                        if (backupResult == BackupResult.Fail)
-                        {
-                            _logger.Log("Retrying in 5 seconds...");
-                            Thread.Sleep(5000);
-                        }
-                    }
-
-
-                    if (backupResult == BackupResult.Success)
-                    {
-                        backupedSaves.Add(backupedSave.OriginalSaveRelativeFolder);
-                    }
+                if (backupResult == BackupResult.Success)
+                {
+                    anyBackuped = true;
                 }
             }
 
-            return backupedSaves.Count > 0;
+            return anyBackuped;
         }
 
         private BackupResult BackupSave(
@@ -172,7 +133,7 @@ namespace ZomboidSavesBackuper
             var saveBackupInProgressPath = $"{saveslocationPath}{saveBackupInProgressFolder}\\";
             var saveBackupToRewrite = backupedSave.GetBackupToRewrite(maxBackupsCount);
             var saveBackupFiles = new List<SaveFileSnapshot>();
-            
+
             if (saveBackupToRewrite != null)
             {
                 var saveBackupToRewritePath = $"{saveslocationPath}{saveBackupToRewrite.FolderName}\\";
@@ -182,12 +143,20 @@ namespace ZomboidSavesBackuper
                 }
                 else if (saveBackupToRewritePath != saveBackupInProgressPath)
                 {
+                    if (Directory.Exists(saveBackupInProgressPath))
+                    {
+                        Directory.Delete(saveBackupInProgressPath, true);
+                    }
                     Directory.Move(saveBackupToRewritePath, saveBackupInProgressPath);
                 }
             }
 
-            backupedSave.AddBackupInProgress(
-                new SaveBackup(saveBackupInProgressFolder, saveBackupToRewrite?.FilesSnapshots.ToList() ?? []), maxBackupsCount);
+            var saveBackupInProgress = new SaveBackup(
+                saveBackupInProgressFolder,
+                DateTime.MinValue,
+                saveBackupToRewrite?.FilesSnapshots.ToList() ?? []);
+            backupedSave.AddBackup(saveBackupInProgress, maxBackupsCount, false);
+
             saveBackupingData?.Invoke();
 
             try
@@ -209,24 +178,28 @@ namespace ZomboidSavesBackuper
 
                 backupResult = BackupResult.Fail;
             }
-            
+
             if (backupResult == BackupResult.Skipped || backupResult == BackupResult.Success)
             {
                 var saveBackupCompletedFolder = $"{originalSaveFolder} [Backup-{originalSaveModifiedUTC:yyyy_MM_dd-HH_mm_ss]}";
                 var saveBackupCompletedPath = $"{saveslocationPath}{saveBackupCompletedFolder}\\";
 
+                if (Directory.Exists(saveBackupCompletedPath))
+                {
+                    Directory.Delete(saveBackupCompletedPath, true);
+                }
                 Directory.Move(saveBackupInProgressPath, saveBackupCompletedPath);
 
-                if(backupResult == BackupResult.Success)
+                if (backupResult == BackupResult.Success)
                 {
-                    var saveBackup = new SaveBackup(saveBackupCompletedFolder, saveBackupFiles);
-                    backupedSave.AddCompletedBackup(originalSaveModifiedUTC, saveBackup, maxBackupsCount);
+                    var saveBackup = new SaveBackup(saveBackupCompletedFolder, originalSaveModifiedUTC, saveBackupFiles);
+                    backupedSave.AddBackup(saveBackup, maxBackupsCount, true);
                 }
             }
             else if (backupResult == BackupResult.Fail)
             {
-                var saveBackup = new SaveBackup(saveBackupInProgressFolder, saveBackupFiles);
-                backupedSave.AddBackupInProgress(saveBackup, maxBackupsCount);
+                var saveBackup = new SaveBackup(saveBackupInProgressFolder, originalSaveModifiedUTC, saveBackupFiles);
+                backupedSave.AddBackup(saveBackup, maxBackupsCount, false);
             }
 
             saveBackupingData?.Invoke();
@@ -265,7 +238,7 @@ namespace ZomboidSavesBackuper
                     resultFilesSnapshots.Add(fileSnapshot);
                     continue;
                 }
-                
+
                 var backupfilePath = saveBackupPath + relativeSaveFilePath;
                 var backupDirectory = Path.GetDirectoryName(backupfilePath);
 
@@ -310,32 +283,60 @@ namespace ZomboidSavesBackuper
             return result;
         }
 
-        private static Dictionary<string, List<string>> FindOriginalSavesFolders(SavesBackupingData workData)
+        private static List<ExistedSave> FindOriginalChangedSaves(SavesBackupingData savesBackupingData)
         {
-            var originalSavesFolders = new Dictionary<string, List<string>>();
+            var originalChangedSaves = new List<ExistedSave>();
 
-            foreach (var locationFolderName in workData.SavesLocationFolders)
+            foreach (var locationFolder in savesBackupingData.SavesLocationFolders)
             {
-                var savesPath = workData.SavesPath + locationFolderName;
+                var savesLocationPath = savesBackupingData.SavesPath + locationFolder;
 
-                if (!Directory.Exists(savesPath))
+                if (!Directory.Exists(savesLocationPath))
                 {
                     continue;
                 }
 
-                var directories = Directory.GetDirectories(savesPath);
-                var saveFolders = directories
-                    .Select(Path.GetFileName)
-                    .Where(f => f != null && !workData.ContainsBackupFolder(locationFolderName, f))
-                    .ToList();
-
-                if (saveFolders.Count > 0)
+                foreach (var savePath in Directory.GetDirectories(savesLocationPath))
                 {
-                    originalSavesFolders[locationFolderName] = saveFolders;
+                    var saveFolder = Path.GetFileName(savePath);
+
+                    if (IsChangedOriginalSave(savesBackupingData, locationFolder, saveFolder))
+                    {
+                        originalChangedSaves.Add(new ExistedSave(locationFolder, saveFolder));
+                    }
                 }
             }
 
-            return originalSavesFolders;
+            return originalChangedSaves;
+        }
+
+        private static bool IsChangedOriginalSave(SavesBackupingData savesBackupingData, string locationFolder, string saveFolder)
+        {
+            if (savesBackupingData.IsBackup(locationFolder, saveFolder))
+            {
+                return false;
+            }
+          
+            var backupedSave = savesBackupingData.GetBackupedSave(locationFolder, saveFolder, false);
+
+            var lastBackupIsUpToDate = false;
+            if (backupedSave != null)
+            {
+                var lastBackup = backupedSave.GetLastBackup();
+
+                if (lastBackup != null)
+                {
+                    var lastBackupExists = Directory.Exists(savesBackupingData.SavesPath + locationFolder + "\\" + lastBackup.FolderName);
+
+                    if (lastBackupExists)
+                    {
+                        var originalSavePath = savesBackupingData.GetOriginalSavePath(backupedSave);
+                        lastBackupIsUpToDate = lastBackup.IsMostActual(Directory.GetLastWriteTimeUtc(originalSavePath));
+                    }
+                }
+            }
+
+            return backupedSave == null || !lastBackupIsUpToDate;
         }
     }
 }

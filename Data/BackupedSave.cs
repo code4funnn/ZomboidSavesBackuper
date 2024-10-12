@@ -12,9 +12,6 @@ namespace ZomboidSavesBackuper.Data
         [JsonProperty("originalSaveFolder")]
         private readonly string _originalSaveFolder;
 
-        [JsonProperty("originalSaveModifiedUTC")]
-        private DateTime _originalSaveModifiedUTC;
-
         [JsonProperty("isInProgress")]
         private bool _isInProgress;
 
@@ -31,12 +28,11 @@ namespace ZomboidSavesBackuper.Data
         {
             _locationFolder = locationFolder;
             _originalSaveFolder = originalSaveFolder;
-            _originalSaveModifiedUTC = DateTime.MinValue;
         }
 
-        public bool IsNeedMakeBackup(DateTime originalSaveLastModifiedUTC)
+        public SaveBackup GetLastBackup()
         {
-            return _originalSaveModifiedUTC != originalSaveLastModifiedUTC;
+            return _saveBackups.LastOrDefault();
         }
 
         public SaveBackup GetBackupToRewrite(int maxBackupsCount)
@@ -59,18 +55,7 @@ namespace ZomboidSavesBackuper.Data
             return _saveBackups.Any(b => b.FolderName == folderName);
         }
 
-        public void AddCompletedBackup(DateTime originalSaveModifiedUTC, SaveBackup backup, int maxBackupsCount)
-        {
-            AddBackup(backup, maxBackupsCount, true);
-            _originalSaveModifiedUTC = originalSaveModifiedUTC;
-        }
-
-        public void AddBackupInProgress(SaveBackup backup, int maxBackupsCount)
-        {
-            AddBackup(backup, maxBackupsCount, false);
-        }
-
-        private void AddBackup(SaveBackup backup, int maxBackupsCount, bool completed)
+        public void AddBackup(SaveBackup backup, int maxBackupsCount, bool completed)
         {
             if (_isInProgress)
             {

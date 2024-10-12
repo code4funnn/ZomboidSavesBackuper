@@ -14,6 +14,9 @@ namespace ZomboidSavesBackuper.Data
         [JsonProperty("folderName")]
         private readonly string _folderName;
 
+        [JsonProperty("originalSaveModifiedUTC")]
+        private readonly DateTime _originalSaveModifiedUTC;
+
         [JsonProperty("filesSnapshots")]
         private readonly List<SaveFileSnapshot> _filesSnapshots;
 
@@ -40,15 +43,21 @@ namespace ZomboidSavesBackuper.Data
 
         public string FolderName => _folderName;
 
-        public SaveBackup(string folderName, List<SaveFileSnapshot> filesSnapshots)
+        public SaveBackup(string folderName, DateTime originalSaveModifiedUTC, List<SaveFileSnapshot> filesSnapshots)
         {
             _folderName = folderName;
+            _originalSaveModifiedUTC = originalSaveModifiedUTC;
             _filesSnapshots = filesSnapshots;
         }
 
         public bool TryGetFileSnapshot(string relativeFilePath, out SaveFileSnapshot snapshot)
         {
             return FilesRelativePathsSnapshots.TryGetValue(relativeFilePath, out snapshot);
+        }
+
+        public bool IsMostActual(DateTime originalSaveModifiedUTC)
+        {
+            return _originalSaveModifiedUTC == originalSaveModifiedUTC;
         }
     }
 }

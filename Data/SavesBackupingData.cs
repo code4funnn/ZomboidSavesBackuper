@@ -44,7 +44,7 @@ namespace ZomboidSavesBackuper.Data
             return $"{SavesPath}{save.LocationFolder}\\{save.OriginalSaveFolder}\\";
         }
 
-        public bool ContainsBackupFolder(string locationFolder, string folderName)
+        public bool IsBackup(string locationFolder, string folderName)
         {
             if (_backupedSaves.TryGetValue(locationFolder, out var locationSavesFolders) &&
                 locationSavesFolders.Values.Any(a => a.ContainsBackup(folderName)))
@@ -55,7 +55,7 @@ namespace ZomboidSavesBackuper.Data
             return false;
         }
 
-        public BackupedSave GetOrAddBackupedSave(string locationFolder, string saveFolder)
+        public BackupedSave GetBackupedSave(string locationFolder, string saveFolder, bool createIfNotExists)
         {
             if (!_backupedSaves.TryGetValue(locationFolder, out var locationSavesFolders))
             {
@@ -63,7 +63,7 @@ namespace ZomboidSavesBackuper.Data
                 _backupedSaves[locationFolder] = locationSavesFolders;
             }
 
-            if (!locationSavesFolders.TryGetValue(saveFolder, out var backupedSave))
+            if (!locationSavesFolders.TryGetValue(saveFolder, out var backupedSave) && createIfNotExists)
             {
                 backupedSave = new BackupedSave(locationFolder, saveFolder, _saveMaxBackupsCount);
                 _backupedSaves[locationFolder][saveFolder] = backupedSave;
