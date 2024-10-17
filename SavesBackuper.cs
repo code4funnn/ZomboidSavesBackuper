@@ -174,14 +174,14 @@ namespace ZomboidSavesBackuper
             }
             catch (Exception backupException)
             {
-                _logger.Log($"Can't complete backupig: {backupException.Message}", LogType.Error);
+                _logger.Log($"Can't complete backupig: {backupException.Message}", LogType.Warning);
 
                 backupResult = BackupResult.Fail;
             }
 
             if (backupResult == BackupResult.Skipped || backupResult == BackupResult.Success)
             {
-                var saveBackupCompletedFolder = $"{originalSaveFolder} [Backup-{originalSaveModifiedUTC:yyyy_MM_dd-HH_mm_ss]}";
+                var saveBackupCompletedFolder = $"{originalSaveFolder} [Backup-{Directory.GetLastWriteTime(originalSavePath):yyyy_MM_dd-HH_mm_ss]}";
                 var saveBackupCompletedPath = $"{saveslocationPath}{saveBackupCompletedFolder}\\";
 
                 if (Directory.Exists(saveBackupCompletedPath))
